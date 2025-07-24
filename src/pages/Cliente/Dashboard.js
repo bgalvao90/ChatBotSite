@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../services/api";
-import "./style.css";
+import "./styles.css";
 import logoGruppy from "../../assets/logo.png";
 
 export default function Dashboard() {
@@ -63,7 +63,7 @@ export default function Dashboard() {
     carregarAtendimentos();
   }, [usuario, filtroStatus, filtroConteudo]);
 
-  function traduzirStatusPorNumero(status) {
+  function traduzirStatusAtendimentoPorNumero(status) {
     switch (status) {
       case 0:
         return "Concluído";
@@ -75,6 +75,57 @@ export default function Dashboard() {
         return "Desconhecido";
     }
   }
+
+  function TempoDecorrido({ criadoEm, finalizadoEm }) {
+    const [tempo, setTempo] = useState("");
+
+    useEffect(() => {
+      const inicio = new Date(criadoEm);
+      const fim = finalizadoEm ? new Date(finalizadoEm) : null;
+
+      // verifica se fim é uma data válida e posterior ao início
+      const isFinalizadoValido =
+        fim instanceof Date && !isNaN(fim) && fim.getTime() > inicio.getTime();
+
+      if (isFinalizadoValido) {
+        const diffMs = fim - inicio;
+        const totalSegundos = Math.floor(diffMs / 1000);
+        const horas = Math.floor(totalSegundos / 3600);
+        const minutos = Math.floor((totalSegundos % 3600) / 60);
+        const segundos = totalSegundos % 60;
+
+        const formatado =
+          horas > 0
+            ? `${horas}h ${minutos}min ${segundos}s`
+            : `${minutos}min ${segundos}s`;
+
+        setTempo(formatado);
+        return;
+      }
+
+      const intervalo = setInterval(() => {
+        const agora = new Date();
+        const diffMs = agora - inicio;
+
+        const totalSegundos = Math.floor(diffMs / 1000);
+        const horas = Math.floor(totalSegundos / 3600);
+        const minutos = Math.floor((totalSegundos % 3600) / 60);
+        const segundos = totalSegundos % 60;
+
+        const formatado =
+          horas > 0
+            ? `${horas}h ${minutos}min ${segundos}s`
+            : `${minutos}min ${segundos}s`;
+
+        setTempo(formatado);
+      }, 1000);
+
+      return () => clearInterval(intervalo);
+    }, [criadoEm, finalizadoEm]);
+
+    return <span>{tempo}</span>;
+  }
+
   function handleLogout() {
     localStorage.removeItem("token"); // Remove o token
     navigate("/"); // Redireciona para página de login (mude se necessário)
@@ -93,7 +144,7 @@ export default function Dashboard() {
   const totalPaginas = Math.ceil(atendimentos.length / itensPorPagina);
 
   return (
-    <div className={`cliente-dashboard ${darkMode ? "dark-mode" : ""}`}>
+    <div className={`cliente-dashboard ${darkMode ? "dark-mode-cliente" : ""}`}>
       <header className="chat-header-dashboard">
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <img src={logoGruppy} alt="Gruppy" style={{ height: "40px" }} />
@@ -244,10 +295,17 @@ export default function Dashboard() {
                   </h3>
                   <p style={{ margin: "6px 0" }}>
                     <strong>Status:</strong>{" "}
-                    {traduzirStatusPorNumero(at.status)}
+                    {traduzirStatusAtendimentoPorNumero(at.status)}
                   </p>
                   <p style={{ margin: "6px 0" }}>
                     <strong>Conteúdo:</strong> {at.titulo || "Nenhum"}
+                  </p>
+                  <p>
+                    Tempo de Atendimento:{" "}
+                    <TempoDecorrido
+                      criadoEm={at.criadoEm}
+                      finalizadoEm={at.finalizadoEm}
+                    />
                   </p>
                 </div>
                 <div style={{ textAlign: "right", minWidth: 180 }}>

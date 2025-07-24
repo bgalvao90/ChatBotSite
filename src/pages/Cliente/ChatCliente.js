@@ -1,14 +1,16 @@
+// src/pages/ClienteChat/index.jsx
 import React, { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import * as signalR from "@microsoft/signalr";
 import api from "../../services/api";
-import "./style.css";
+import "./styles.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "bootstrap/dist/css/bootstrap.min.css";
 
 export default function Chat() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -25,16 +27,14 @@ export default function Chat() {
   const messagesEndRef = useRef(null);
   const connectionRef = useRef(null);
 
-  // Aplicar/remover classe dark-mode no body para modo escuro global
   useEffect(() => {
     if (darkMode) {
-      document.body.classList.add("dark-mode");
+      document.body.classList.add("dark-mode-cliente");
     } else {
-      document.body.classList.remove("dark-mode");
+      document.body.classList.remove("dark-mode-cliente");
     }
   }, [darkMode]);
 
-  // Carregar mensagens e atendimento
   useEffect(() => {
     async function carregarDados() {
       try {
@@ -42,7 +42,32 @@ export default function Chat() {
           api.get(`/AtendimentoCliente/${id}/mensagens`),
           api.get(`/AtendimentoCliente/${id}`),
         ]);
-        setMessages(resMensagens.data);
+
+        let msgs = resMensagens.data;
+
+        // Recupera mensagem automática salva no localStorage
+        const msgAutoStr = localStorage.getItem(`msgAuto-${id}`);
+        if (msgAutoStr) {
+          const msgAuto = JSON.parse(msgAutoStr);
+
+          // Insere a mensagem automática depois da última mensagem do cliente
+          // Encontra o índice da última mensagem enviada pelo cliente
+          const lastClienteIndex = [...msgs]
+            .reverse()
+            .findIndex((m) => !m.enviadaPorAtendente);
+          const insertIndex =
+            lastClienteIndex === -1
+              ? msgs.length
+              : msgs.length - lastClienteIndex;
+
+          msgs = [
+            ...msgs.slice(0, insertIndex),
+            msgAuto,
+            ...msgs.slice(insertIndex),
+          ];
+        }
+
+        setMessages(msgs);
         setStatus(resAtendimento.data.status);
         setAtendimento(resAtendimento.data);
       } catch (err) {
@@ -52,14 +77,51 @@ export default function Chat() {
     carregarDados();
   }, [id]);
 
-  // Scroll automático para última mensagem
+  useEffect(() => {
+    if (location.state?.mensagemAutomatica) {
+      let msgAuto = location.state.mensagemAutomatica;
+
+      if (typeof msgAuto === "string") {
+        msgAuto = {
+          id: "auto-msg-" + Date.now(),
+          conteudo: msgAuto,
+          enviadaPorAtendente: true,
+          enviadoPor: "Atendente Virtual",
+          dataHora: new Date().toISOString(),
+          imagemUrl: null,
+        };
+      }
+
+      // Salva no localStorage para persistir após F5
+      localStorage.setItem(`msgAuto-${id}`, JSON.stringify(msgAuto));
+
+      setMessages((prev) => {
+        // Insere msgAuto depois da última mensagem do cliente
+        const lastClienteIndex = [...prev]
+          .reverse()
+          .findIndex((m) => !m.enviadaPorAtendente);
+        const insertIndex =
+          lastClienteIndex === -1
+            ? prev.length
+            : prev.length - lastClienteIndex;
+
+        return [
+          ...prev.slice(0, insertIndex),
+          msgAuto,
+          ...prev.slice(insertIndex),
+        ];
+      });
+
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [location.state, id]);
+
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
-  // Setup SignalR
   useEffect(() => {
     const connection = new signalR.HubConnectionBuilder()
       .withUrl("https://localhost:7169/chatHub")
@@ -90,7 +152,6 @@ export default function Chat() {
     };
   }, [id]);
 
-  // Enviar mensagem
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() && !file) return;
@@ -121,7 +182,6 @@ export default function Chat() {
     }
   };
 
-  // Finalizar atendimento
   const finalizarAtendimento = async () => {
     try {
       await api.patch(`/AtendimentoCliente/Finalizar-Atendimento/${id}`);
@@ -135,8 +195,8 @@ export default function Chat() {
   };
 
   return (
-    <div className="chat-container">
-      <header className="chat-header">
+    <div className="chat-container-cliente">
+      <header className="chat-header-cliente">
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <button
             onClick={() => navigate("/cliente/dashboard")}
@@ -163,7 +223,7 @@ export default function Chat() {
             onClick={() => {
               const novoModo = !darkMode;
               setDarkMode(novoModo);
-              localStorage.setItem("darkMode", novoModo); // salva preferência
+              localStorage.setItem("darkMode", novoModo);
             }}
             className="icon-button"
             title={darkMode ? "Modo claro" : "Modo escuro"}
@@ -181,7 +241,7 @@ export default function Chat() {
 
           {menuOpen && (
             <div
-              className="menu-dropdown"
+              className="menu-dropdown-cliente"
               style={{ position: "absolute", right: 0, top: "120%" }}
             >
               <button
@@ -198,12 +258,12 @@ export default function Chat() {
         </div>
       </header>
 
-      <main className="chat-box">
+      <main className="chat-box-cliente">
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`message ${
-              msg.enviadaPorAtendente ? "cliente" : "atendente"
+            className={`message-cliente ${
+              msg.enviadaPorAtendente ? "atendente" : "cliente"
             }`}
           >
             <strong>{msg.enviadoPor}</strong>:<br />
@@ -230,7 +290,7 @@ export default function Chat() {
             <div
               style={{
                 fontSize: "0.7em",
-                color: msg.enviadaPorAtendente ? "#e9ecef" : "#e9ecef",
+                color: "#e9ecef",
                 marginTop: 4,
               }}
             >
@@ -253,14 +313,13 @@ export default function Chat() {
       </main>
 
       {status !== 0 ? (
-        <form onSubmit={handleSend} className="chat-input">
+        <form onSubmit={handleSend} className="chat-input-cliente">
           <input
             type="text"
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
               if (connectionRef.current && e.target.value.trim() !== "") {
-                console.log("Enviando evento Digitando");
                 connectionRef.current.invoke("Digitando", id, "Cliente");
               }
             }}

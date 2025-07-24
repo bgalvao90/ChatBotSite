@@ -3,18 +3,19 @@ import { useNavigate } from "react-router-dom";
 import api from "../../services/api";
 import "./style.css";
 import logoGruppy from "../../assets/logo.png";
+import * as signalR from "@microsoft/signalr";
 
 export default function Dashboard() {
   const [atendimentos, setAtendimentos] = useState([]);
   const [usuario, setUsuario] = useState(null);
   const [filtroStatus, setFiltroStatus] = useState("pendente");
+  const [statusAtendente, setStatusAtendente] = useState(0);
   const [filtroConteudo, setFiltroConteudo] = useState("");
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem("darkMode") === "true";
   });
 
-  // NOVO estado para alternar visão geral pendentes
   const [mostrarPendentesTodosAtendentes, setMostrarPendentesTodosAtendentes] =
     useState(false);
 
@@ -31,6 +32,42 @@ export default function Dashboard() {
         payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"] ||
         "Atendente";
       setUsuario({ nome: nomeUsuario });
+
+      fetch("https://localhost:7169/api/Atendente/status?id=0", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error("Falha ao atualizar status");
+          }
+          return res.json();
+        })
+        .then((data) => {
+          console.log("Status alterado para online:", data);
+        })
+        .catch((err) => {
+          console.error(err);
+        });
+
+      const handleBeforeUnload = (event) => {
+        const token = localStorage.getItem("token");
+        if (!token) return;
+
+        fetch("https://localhost:7169/api/Atendente/status?id=2", {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          keepalive: true,
+        });
+      };
+
+      window.addEventListener("beforeunload", handleBeforeUnload);
     }
   }, []);
 
@@ -38,7 +75,7 @@ export default function Dashboard() {
     if (usuario) carregarAtendimentos();
   }, [usuario, filtroStatus, filtroConteudo, mostrarPendentesTodosAtendentes]);
 
-  function traduzirStatusPorNumero(status) {
+  function traduzirStatusAtendimentoPorNumero(status) {
     switch (status) {
       case 0:
         return "Concluído";
@@ -48,6 +85,44 @@ export default function Dashboard() {
         return "Iniciado";
       default:
         return "Desconhecido";
+    }
+  }
+
+  async function AlterarStatusAtendente(novoStatus) {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const statusEnumParaString = {
+      0: "Online",
+      1: "Ausente",
+      2: "Offline",
+    };
+
+    const statusString = statusEnumParaString[novoStatus];
+    if (!statusString) {
+      console.error("Status inválido:", novoStatus);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://localhost:7169/api/Atendente/status?status=${statusString}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Falha ao atualizar status");
+      }
+
+      const data = await response.json();
+      console.log(`Status alterado para: ${statusString}`, data);
+    } catch (error) {
+      console.error("Erro ao atualizar status:", error);
     }
   }
 
@@ -95,10 +170,85 @@ export default function Dashboard() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    await AlterarStatusAtendente(2);
+
     localStorage.removeItem("token");
     navigate("/");
   }
+
+  function TempoDecorrido({ criadoEm, finalizadoEm }) {
+    const [tempo, setTempo] = useState("");
+
+    useEffect(() => {
+      const inicio = new Date(criadoEm);
+      const fim = finalizadoEm ? new Date(finalizadoEm) : null;
+
+      // verifica se fim é uma data válida e posterior ao início
+      const isFinalizadoValido =
+        fim instanceof Date && !isNaN(fim) && fim.getTime() > inicio.getTime();
+
+      if (isFinalizadoValido) {
+        const diffMs = fim - inicio;
+        const totalSegundos = Math.floor(diffMs / 1000);
+        const horas = Math.floor(totalSegundos / 3600);
+        const minutos = Math.floor((totalSegundos % 3600) / 60);
+        const segundos = totalSegundos % 60;
+
+        const formatado =
+          horas > 0
+            ? `${horas}h ${minutos}min ${segundos}s`
+            : `${minutos}min ${segundos}s`;
+
+        setTempo(formatado);
+        return;
+      }
+
+      const intervalo = setInterval(() => {
+        const agora = new Date();
+        const diffMs = agora - inicio;
+
+        const totalSegundos = Math.floor(diffMs / 1000);
+        const horas = Math.floor(totalSegundos / 3600);
+        const minutos = Math.floor((totalSegundos % 3600) / 60);
+        const segundos = totalSegundos % 60;
+
+        const formatado =
+          horas > 0
+            ? `${horas}h ${minutos}min ${segundos}s`
+            : `${minutos}min ${segundos}s`;
+
+        setTempo(formatado);
+      }, 1000);
+
+      return () => clearInterval(intervalo);
+    }, [criadoEm, finalizadoEm]);
+
+    return <span>{tempo}</span>;
+  }
+
+  useEffect(() => {
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl("https://localhost:7169/chatHub")
+      .withAutomaticReconnect()
+      .build();
+
+    connection
+      .start()
+      .then(() => {
+        console.log("Conectado ao SignalR");
+
+        // Escuta o evento que o back envia
+        connection.on("AtualizarDashboard", (dadosAtualizados) => {
+          console.log("Dashboard atualizada:", dadosAtualizados);
+          setAtendimentos(dadosAtualizados); // Atualiza a lista no front
+        });
+      })
+      .catch((err) => console.error("Erro ao conectar:", err));
+  }, []);
 
   const atendimentosOrdenados = [...atendimentos].sort((a, b) => {
     if (a.posicaoNaFila == null) return 1;
@@ -175,7 +325,27 @@ export default function Dashboard() {
               ? "Ver meus atendimentos"
               : "Ver todos pendentes"}
           </button>
-
+          <select
+            value={statusAtendente}
+            onChange={async (e) => {
+              const novoStatus = Number(e.target.value);
+              setStatusAtendente(novoStatus);
+              await AlterarStatusAtendente(novoStatus);
+            }}
+            style={{
+              padding: 6,
+              borderRadius: 4,
+              border: "1px solid",
+              borderColor: darkMode ? "#555" : "#ccc",
+              minWidth: 40,
+              backgroundColor: darkMode ? "#2a2a3f" : "#fff",
+              color: darkMode ? "#eee" : "#000",
+            }}
+          >
+            <option value={0}>🟢 Online</option>
+            <option value={1}>🟠 Ausente</option>
+            <option value={2}>🔴 Offline</option>
+          </select>
           <button onClick={handleLogout} className="btn btn-danger">
             Logout
           </button>
@@ -289,7 +459,7 @@ export default function Dashboard() {
                   </h3>
                   <p style={{ margin: "6px 0" }}>
                     <strong>Status:</strong>{" "}
-                    {traduzirStatusPorNumero(at.status)}
+                    {traduzirStatusAtendimentoPorNumero(at.status)}
                   </p>
                   <p style={{ margin: "6px 0" }}>
                     <strong>Conteúdo:</strong> {at.titulo || "Nenhum"}
@@ -297,7 +467,16 @@ export default function Dashboard() {
                   <p style={{ margin: "6px 0" }}>
                     <strong>Cliente:</strong> {at.nomeUsuario || "Desconhecido"}
                   </p>
-
+                  <p style={{ margin: "6px 0" }}>
+                    <strong>Categoria:</strong> {at.categoria || "Desconhecido"}
+                  </p>
+                  <p>
+                    Tempo de Atendimento:{" "}
+                    <TempoDecorrido
+                      criadoEm={at.criadoEm}
+                      finalizadoEm={at.finalizadoEm}
+                    />
+                  </p>
                   {(at.status === 1 || at.status === 2) &&
                     (!at.atendente || at.atendente.nome !== usuario?.nome) && (
                       <button

@@ -38,7 +38,7 @@ export default function CriarAtendimento() {
         dataHora: new Date().toISOString(),
       });
 
-      const atendimentoCriado = response.data;
+      const { atendimento, mensagemAutomatica } = response.data;
 
       if (file) {
         const formData = new FormData();
@@ -46,7 +46,7 @@ export default function CriarAtendimento() {
         formData.append("Imagem", file);
 
         await api.post(
-          `/AtendimentoCliente/${atendimentoCriado.id}/anexo`,
+          `/AtendimentoCliente/${atendimento.id}/anexo`,
           formData,
           {
             headers: { "Content-Type": "multipart/form-data" },
@@ -54,7 +54,9 @@ export default function CriarAtendimento() {
         );
       }
 
-      navigate(`/cliente/atendimento/${atendimentoCriado.id}`);
+      navigate(`/cliente/atendimento/${atendimento.id}`, {
+        state: { mensagemAutomatica },
+      });
     } catch (error) {
       console.error("Erro ao criar atendimento:", error);
       alert("Erro ao criar atendimento. Tente novamente.");
